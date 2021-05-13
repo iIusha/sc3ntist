@@ -1,7 +1,8 @@
 #include "SC3StringDecoder.h"
-#include "SC3Expression.h"
 #include <exception>
 #include <iomanip>
+#include <iostream>
+#include <codecvt>
 
 // TODO token list instead of fully decoded string vector
 // (expression context?)
@@ -17,12 +18,12 @@ std::vector<std::string> SC3StringDecoder::decodeStringTableToUtf8() {
   for (SCXTableIndex i = 0; i < _file.getStringCount(); i++) {
     _cursor = (uint8_t*)_file.getPString(i);
     std::stringstream stream;
-
     if (i == _file.getStringCount() - 1)
       _end = _cursor + _file.getLength();
     else
       _end = _cursor + _file.getStringOffset(i + 1);
 
+    if (_file.getStringOffset(i) < 0 || _file.getStringOffset(i + 1) < 0) continue;
     while (_cursor < _end) {
       if (!decodeToken(stream)) break;
     }
@@ -41,17 +42,10 @@ bool SC3StringDecoder::decodeToken(std::ostream& stream) {
 
   // character
   if (*_cursor >= 0x80) {
-    int id = readUint16BE() & 0x7FFF;
-    if (id >= _charset.size()) {
-      std::stringstream error;
-      error << "Character not in charset: " << id;
-      throw std::runtime_error(error.str());
-    }
-    if (_sc3toolsCompat && _charset[id] == u8"\ue100") {
-      stream << "[...]";
-    } else {
-      stream << _charset[id];
-    }
+    uint16_t _uint = readUint16BE();
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> convert;
+
+    stream << convert.to_bytes(_uint - 39216);     /// 39216 for S;G:MDE,  39218 for S;G0
     return true;
   }
 
@@ -59,14 +53,6 @@ bool SC3StringDecoder::decodeToken(std::ostream& stream) {
   remaining = _end - _cursor;
 
   switch (tokenType) {
-    case LineBreak: {
-      stream << "[linebreak]";
-      break;
-    }
-    case AltLineBreak: {
-      stream << "[alt-linebreak]";
-      break;
-    }
     case CharacterNameStart: {
       stream << "[name]";
       break;
@@ -79,103 +65,7 @@ bool SC3StringDecoder::decodeToken(std::ostream& stream) {
       stream << "[%p]";
       break;
     }
-    case SetColor: {
-      stream << "[color index=\"";
-      stream << exprToString(&remaining);
-      stream << "\"]";
-      break;
-    }
-    case Present_ResetAlignment: {
-      stream << "[%e]";
-      break;
-    }
-    case RubyBaseStart: {
-      stream << "[ruby-base]";
-      break;
-    }
-    case RubyTextStart: {
-      stream << "[ruby-text-start]";
-      break;
-    }
-    case RubyTextEnd: {
-      stream << "[ruby-text-end]";
-      break;
-    }
-    case SetFontSize: {
-      if (remaining < 2) {
-        throw std::runtime_error("Not enough data when parsing string");
-      }
-      remaining -= 2;
-      stream << "[font size=\"";
-      print(stream, readUint16BE());
-      stream << "\"]";
-      break;
-    }
-    case PrintInParallel: {
-      stream << "[parallel]";
-      break;
-    }
-    case CenterText: {
-      stream << "[center]";
-      break;
-    }
-    case SetTopMargin: {
-      if (remaining < 2) {
-        throw std::runtime_error("Not enough data when parsing string");
-      }
-      remaining -= 2;
-      stream << "[margin top=\"";
-      print(stream, readUint16BE());
-      stream << "\"]";
-      break;
-    }
-    case SetLeftMargin: {
-      if (remaining < 2) {
-        throw std::runtime_error("Not enough data when parsing string");
-      }
-      remaining -= 2;
-      stream << "[margin left=\"";
-      print(stream, readUint16BE());
-      stream << "\"]";
-      break;
-    }
-    case GetHardcodedValue: {
-      if (remaining < 2) {
-        throw std::runtime_error("Not enough data when parsing string");
-      }
-      remaining -= 2;
-      stream << "[hardcoded-value index=\"";
-      print(stream, readUint16BE());
-      stream << "\"]";
-      break;
-    }
-    case EvaluateExpression: {
-      stream << "[evaluate expr=\"";
-      stream << exprToString(&remaining);
-      stream << "\"]";
-      break;
-    }
-    case AutoForward: {
-      stream << "[auto-forward]";
-      break;
-    }
-    case AutoForward_1A: {
-      stream << "[auto-forward-1a]";
-      break;
-    }
-    case Present_0x18: {
-      stream << "[%18]";
-      break;
-    }
-    case Unk_1E: {
-      stream << "[unk-1e]";
-      break;
-    }
-    default: {
-      std::stringstream error;
-      error << "Unrecognized string token " << (int)tokenType;
-      throw std::runtime_error(error.str());
-    }
+
   }
 
   return true;

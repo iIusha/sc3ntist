@@ -1,18 +1,14 @@
-// SCXParser.cpp : Defines the entry point for the console application.
-//
-
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <sstream>
 #include <string>
-
+#include <iostream>
 #include "parser/SC3Argument.h"
 #include "parser/CCDisassembler.h"
 #include "parser/SC3StringDecoder.h"
 #include "parser/CCCharset.h"
-#include "parser/SCXFile.h"
-#include "parser/SC3CodeBlock.h"
+
+using namespace std;
 
 std::string uint8_vector_to_hex_string(const std::vector<uint8_t> &v) {
   std::stringstream ss;
@@ -91,21 +87,24 @@ std::string GetFirstSC3String(const std::vector<std::string> &stringTable,
   for (const auto &arg : inst->args()) {
     if (arg.type == StringRef) {
       if (arg.uint16_value < stringTable.size())
-        return "\t; " + stringTable[arg.uint16_value];
+        return stringTable[arg.uint16_value] + "\n";
+        //return "\t; " + stringTable[arg.uint16_value];
       return "";
     }
   }
   return "";
 }
 
-int main() {
+int main(int argv, char** argc) {
   std::vector<std::pair<uint8_t *, std::streamsize>> files;
-
-  std::string path = "G:\\Games\\SGTL\\CCEnVitaPatch101\\script_dis";
+  std::string path = argc[1];
 
   int fileId = 0;
-  for (auto &p : std::experimental::filesystem::directory_iterator(path)) {
-    if (p.path().extension().string() != ".scx") continue;
+  for (auto &p : filesystem::directory_iterator(path)) {
+    std::string data = p.path().extension().string();
+    std::transform(data.begin(), data.end(), data.begin(),
+                   [](unsigned char c){ return std::tolower(c); }); ///lowers "data"
+    if (data != ".scx") continue;
 
     std::ifstream file(p.path(), std::ios::binary | std::ios::ate);
     std::streamsize size = file.tellg();
@@ -126,28 +125,19 @@ int main() {
                           std::ios::out | std::ios::trunc | std::ios::binary);
     int i = 0;
     for (const auto &label : scx.disassembly()) {
-      outFile << "\n#label" << i << "_" << label->address() << ":\n";
       i++;
       for (const auto &inst : label->instructions()) {
         if (inst->name() == "Assign") {
-          outFile << "\t" << SC3ArgumentToString(inst->args().at(0)) << "\n";
           continue;
         }
-        outFile << "\t" << inst->name();
         int i = 0;
         int argCount = inst->args().size();
         if (argCount > 0) {
-          outFile << "(";
           for (const auto &arg : inst->args()) {
             i++;
-            outFile << arg.name << ": ";
-            outFile << SC3ArgumentToString(arg);
-            if (i < argCount) outFile << ", ";
           }
-          outFile << ")";
           outFile << GetFirstSC3String(stringTable, inst.get());
         }
-        outFile << "\n";
       }
     }
     outFile.close();
